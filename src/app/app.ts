@@ -1,5 +1,5 @@
 import { CommonModule } from '@angular/common';
-import { Component, inject } from '@angular/core';
+import { Component, OnInit, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 
 import { ButtonModule } from 'primeng/button';
@@ -9,6 +9,7 @@ import { TagModule } from 'primeng/tag';
 
 import { BetChoice, GameState, LeaderboardEntry } from './models/tile.model';
 import { GameEngineService } from './services/game-engine.service';
+import { LeaderboardApiService } from './services/leaderboard-api.service';
 
 @Component({
   selector: 'app-root',
@@ -24,11 +25,12 @@ import { GameEngineService } from './services/game-engine.service';
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
-export class App {
+export class App implements OnInit {
   private readonly gameEngine = inject(GameEngineService);
+  private readonly leaderboardApi = inject(LeaderboardApiService);
 
   playerName = 'Player';
-  leaderboard: LeaderboardEntry[] = this.gameEngine.getLeaderboard();
+  leaderboard: LeaderboardEntry[] = [];
   savedFinalScore = false;
 
   state: GameState = {
@@ -44,6 +46,10 @@ export class App {
     gameOverReason: null,
   };
 
+  ngOnInit(): void {
+    this.loadLeaderboard();
+  }
+
   startGame(): void {
     this.savedFinalScore = false;
     this.state = this.gameEngine.createNewGame(this.playerName);
@@ -55,18 +61,25 @@ export class App {
       page: 'landing',
     };
 
-    this.leaderboard = this.gameEngine.getLeaderboard();
+    this.loadLeaderboard();
   }
 
   placeBet(bet: BetChoice): void {
     this.state = this.gameEngine.resolveBet(this.state, bet);
 
     if (this.state.page === 'game-over' && !this.savedFinalScore) {
-      this.leaderboard = this.gameEngine.saveScore(
-        this.state.playerName,
-        this.state.score
-      );
       this.savedFinalScore = true;
+
+      this.leaderboardApi
+        .saveScore(this.state.playerName, this.state.score)
+        .subscribe({
+          next: (entries) => {
+            this.leaderboard = entries;
+          },
+          error: (error) => {
+            console.error('Failed to save score to MongoDB', error);
+          },
+        });
     }
   }
 
@@ -80,6 +93,17 @@ export class App {
       label: this.formatTileId(id),
       value,
     }));
+  }
+
+  private loadLeaderboard(): void {
+    this.leaderboardApi.getLeaderboard().subscribe({
+      next: (entries) => {
+        this.leaderboard = entries;
+      },
+      error: (error) => {
+        console.error('Failed to load leaderboard from MongoDB', error);
+      },
+    });
   }
 
   private formatTileId(tileId: string): string {
